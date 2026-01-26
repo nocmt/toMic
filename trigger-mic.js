@@ -4,8 +4,8 @@ const action = process.argv[2];
 const baseUrl = process.argv[3];
 
 if (!action || !baseUrl || !['start', 'stop'].includes(action)) {
-    console.log('【使用说明】node trigger-mic.js start https://192.168.1.5:3000');
-    console.log('【使用说明】node trigger-mic.js stop https://192.168.1.5:3000');
+    console.log('【使用说明】node trigger-mic.js start https://192.168.1.5:23336');
+    console.log('【使用说明】node trigger-mic.js stop https://192.168.1.5:23336');
     process.exit(1);
 }
 

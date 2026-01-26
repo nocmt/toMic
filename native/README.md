@@ -29,8 +29,8 @@ swift build -c release
 ## 集成建议
 
 - 作为独立进程运行，监听到“正在被使用”时，可通过 HTTP 请求主动调用你的 Node 服务：
-  - `POST https://<server>:3000/api/mic/start` 开始拾音
-  - `POST https://<server>:3000/api/mic/stop` 结束拾音
+  - `POST https://<server>:23336/api/mic/start` 开始拾音
+  - `POST https://<server>:23336/api/mic/stop` 结束拾音
 - 如果需要更严格的“按应用识别”，需要使用更深入的 API 或私有接口来枚举具体进程与流路，由于安全与兼容性限制，这里提供的是稳定且通用的运行状态监听。
 
 ## 注意

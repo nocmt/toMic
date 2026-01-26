@@ -26,7 +26,21 @@ yarn-error.log*
 # Build artifacts
 .build/
 native/**/.build/
-dist/
+# Windows listener build artifacts
+native/windows-listener/build/
+native/windows-listener/*.spec
+
+# Large binaries
+native/windows-listener/ffmpeg.exe
+native/windows-listener/sox.exe
+native/windows-listener/libmad-0.dll
+native/windows-listener/libmp3lame-0.dll
+native/windows-listener/libogg-0.dll
+native/windows-listener/libvorbis-0.dll
+native/windows-listener/libvorbisenc-2.dll
+native/windows-listener/libvorbisfile-3.dll
+native/windows-listener/zlib1.dll
+native/windows-listener/wget.exe
 
 # IDE
 .vscode/
@@ -37,3 +51,6 @@ dist/
 
 # Project specific
 temp/
+build/*
+mic_listener.spec
+package-lock.json
