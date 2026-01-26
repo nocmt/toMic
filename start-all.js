@@ -1,3 +1,10 @@
+/**
+ * ToMic - 一键启动脚本
+ * 
+ * 负责自动检测环境、安装依赖 (sox)、构建原生监听器并启动所有服务。
+ * 仅支持 macOS 环境。
+ */
+
 const { spawn } = require('child_process');
 const https = require('https');
 const fs = require('fs');

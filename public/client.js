@@ -1,3 +1,10 @@
+/**
+ * ToMic - Client
+ * 
+ * 运行在浏览器端的音频采集逻辑。
+ * 使用 Web Audio API 和 WebSocket 传输音频数据。
+ */
+
 const socket = io();
 const statusEl = document.getElementById('status');
 const micBtn = document.getElementById('micBtn');

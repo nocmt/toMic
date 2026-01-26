@@ -1,3 +1,16 @@
+/**
+ * ToMic - Server
+ * 
+ * 核心服务端代码，负责：
+ * 1. 启动 HTTPS 服务和 WebSocket 服务
+ * 2. 接收客户端音频流
+ * 3. 使用 FFmpeg 进行音频转码 (WebM -> PCM)
+ * 4. 通过 SoX (推荐) 或 Speaker 将音频输出到虚拟声卡 (BlackHole)
+ * 
+ * @author Your Name
+ * @license MIT
+ */
+
 const express = require('express');
 const https = require('https');
 const fs = require('fs');
