@@ -150,11 +150,34 @@ function attachSignals() {
     process.on('SIGTERM', cleanup);
 }
 
+function checkDependencies() {
+    return new Promise((resolve) => {
+        const check = spawn('sox', ['--version']);
+        check.on('error', () => {
+             log('未检测到 sox，正在尝试通过 brew 安装...');
+             const install = spawn('brew', ['install', 'sox'], { stdio: 'inherit' });
+             install.on('exit', (code) => {
+                 if (code === 0) log('sox 安装成功！');
+                 else log('sox 安装失败，建议手动运行 "brew install sox"');
+                 resolve();
+             });
+             install.on('error', () => {
+                 log('未找到 brew，请手动安装 sox 以支持定向音频输出');
+                 resolve();
+             });
+        });
+        check.on('exit', (code) => {
+             resolve();
+        });
+    });
+}
+
 async function main() {
     if (os.platform() !== 'darwin') {
         log('仅支持 macOS 一键启动');
         process.exit(1);
     }
+    await checkDependencies();
     attachSignals();
     startServer();
     const buildResult = await buildListenerIfNeeded();

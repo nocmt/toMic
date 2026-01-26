@@ -4,9 +4,25 @@ const fs = require('fs');
 const path = require('path');
 const selfsigned = require('selfsigned');
 const { Server } = require('socket.io');
+const { spawn } = require('child_process');
 const Speaker = require('speaker');
 const ffmpeg = require('fluent-ffmpeg');
 const { PassThrough } = require('stream');
+
+// 检测是否安装了 sox (play)
+let hasSox = false;
+try {
+    const checkSox = require('child_process').spawnSync('sox', ['--version']);
+    if (checkSox.status === 0) {
+        hasSox = true;
+        console.log('【系统初始化】检测到 SoX 音频工具，将启用定向音频路由 (BlackHole)');
+    } else {
+        console.log('【系统初始化】未检测到 SoX，将使用默认音频输出设备 (Speaker)');
+        console.log('【建议】运行 "brew install sox" 以支持定向输出到 BlackHole，避免占用系统扬声器');
+    }
+} catch (e) {
+    console.log('【系统初始化】SoX 检测失败，将使用默认音频输出设备');
+}
 
 // 配置
 const PORT = 3000;
@@ -93,30 +109,70 @@ async function getCertificates() {
             let audioStream = new PassThrough();
             let ffmpegCommand = null;
             let speaker = null;
+            let soxProcess = null;
             let desiredStreaming = false;
             let pipelineState = 'idle';
 
-            // 初始化 FFmpeg 转换流 (WebM -> PCM -> Speaker)
+            // 初始化 FFmpeg 转换流 (WebM -> PCM -> Speaker/SoX)
             function startAudioPipeline() {
                 if (ffmpegCommand) return;
                 pipelineState = 'running';
 
                 console.log(`【音频管道】正在为客户端 ${socket.id} 初始化音频管道...`);
                 
-                // 初始化扬声器 (PCM 16bit, 48k, Mono)
-                speaker = new Speaker({
-                    channels: 1,
-                    bitDepth: 16,
-                    sampleRate: 48000
-                });
+                let outputStream;
 
-                speaker.on('close', () => {
-                    // console.log(`【音频管道】Speaker 已关闭 (${socket.id})`);
-                });
+                if (hasSox) {
+                    // 使用 SoX (play) 定向输出到 BlackHole 2ch
+                    // 相当于命令: AUDIODEV="BlackHole 2ch" play -t raw -b 16 -e signed -c 1 -r 48000 -
+                    const args = [
+                        '-t', 'raw',      // 输入格式 raw
+                        '-b', '16',       // 16 bit
+                        '-e', 'signed',   // signed integer
+                        '-c', '1',        // 1 channel
+                        '-r', '48000',    // 48k sample rate
+                        '-'               // 从 stdin 读取
+                    ];
+
+                    const env = { ...process.env, AUDIODEV: 'BlackHole 2ch' };
+                    
+                    try {
+                        soxProcess = spawn('play', args, { env });
+                        
+                        soxProcess.on('error', (err) => {
+                            console.error(`【SoX错误】启动失败: ${err.message}`);
+                        });
+
+                        // 忽略 stderr 输出，除非调试需要
+                        soxProcess.stderr.on('data', () => {}); 
+
+                        outputStream = soxProcess.stdin;
+                        console.log('【音频管道】已启动 SoX 进程，定向输出到 BlackHole 2ch');
+                    } catch (e) {
+                        console.error(`【SoX异常】${e.message}`);
+                        // 回退到 Speaker
+                        hasSox = false; 
+                    }
+                }
+                
+                if (!outputStream) {
+                    // 初始化扬声器 (PCM 16bit, 48k, Mono) - 回退方案
+                    speaker = new Speaker({
+                        channels: 1,
+                        bitDepth: 16,
+                        sampleRate: 48000
+                    });
+
+                    speaker.on('close', () => {
+                        // console.log(`【音频管道】Speaker 已关闭 (${socket.id})`);
+                    });
+                    outputStream = speaker;
+                    console.log('【音频管道】使用默认 Speaker 输出 (未启用定向路由)');
+                }
 
                 // 配置 FFmpeg
                 // 输入: WebM (来自浏览器)
-                // 输出: Raw PCM (送给 Speaker)
+                // 输出: Raw PCM (送给 Speaker/SoX)
                 ffmpegCommand = ffmpeg(audioStream)
                     .inputFormat('webm')
                     .audioCodec('pcm_s16le')
@@ -124,7 +180,10 @@ async function getCertificates() {
                     .audioFrequency(48000)
                     .format('s16le')
                     .on('error', (err) => {
-                        if (!err.message.includes('Output stream closed') && !err.message.includes('write after end') && !err.message.includes('signal SIG')) {
+                        if (!err.message.includes('Output stream closed') && 
+                            !err.message.includes('write after end') && 
+                            !err.message.includes('signal SIG') &&
+                            !err.message.includes('ffmpeg exited with code 255')) {
                             console.error(`【FFmpeg错误】: ${err.message}`);
                         }
                         cleanupPipeline();
@@ -139,14 +198,22 @@ async function getCertificates() {
                         cleanupPipeline();
                     });
 
-                // 将 FFmpeg 的输出管道连接到 Speaker
-                ffmpegCommand.pipe(speaker, { end: true });
+                // 将 FFmpeg 的输出管道连接到 Speaker/SoX
+                ffmpegCommand.pipe(outputStream, { end: true });
             }
 
             function cleanupPipeline() {
                 if (speaker) {
-                    speaker.close();
+                    if (typeof speaker.close === 'function') {
+                         speaker.close();
+                    } else if (typeof speaker.end === 'function') {
+                         speaker.end();
+                    }
                     speaker = null;
+                }
+                if (soxProcess) {
+                    soxProcess.kill();
+                    soxProcess = null;
                 }
                 ffmpegCommand = null;
                 if (pipelineState !== 'idle') {
