@@ -8,6 +8,8 @@
 
 适用于 Zoom、Teams、Discord 或任何需要高质量麦克风输入的场景，尤其是当你只有台式机而没有麦克风，或者笔记本麦克风损坏时。
 
+![](Screenshot.png)
+
 ## ✨ 特性
 
 - **零 App 安装**：手机端无需安装 App，通过浏览器（Chrome/Safari）即可使用。

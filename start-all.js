@@ -5,6 +5,19 @@
  * 支持 macOS (Swift) 和 Windows (Python)。
  */
 
+const version = require('./package.json').version;
+const gradient = require('gradient-string');
+const figlet = require('figlet');
+
+const title = figlet.textSync('ToMic', {
+    font: 'Slant',
+    horizontalLayout: 'fitted'
+});
+
+console.log('\n');
+console.log(gradient.morning.multiline(title));
+console.log(gradient.morning(`\n   Version: ${version}\n`));
+
 const { spawn } = require('child_process');
 const https = require('https');
 const fs = require('fs');
@@ -173,7 +186,7 @@ function startMacListener(binPath, useSwiftRun) {
         log('未检测到监听器二进制，改用 swift run');
         listenerProcess = spawn('swift', ['run', '-c', 'release', '--disable-sandbox'], { cwd: macListenerRoot });
     } else {
-        log(`监听器路径: ${binPath}`);
+        log(`监听器路径: ${binPath.replace(macListenerRoot, '')}`);
         // 确保 CWD 存在
         let cwd = macListenerRoot;
         if (!fs.existsSync(cwd)) {

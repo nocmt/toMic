@@ -121,6 +121,8 @@ if (fs.existsSync(pkgSrc)) {
 console.log('正在复制文档和静态文件...');
 if (fs.existsSync(path.join(__dirname, 'README.md'))) {
     fs.copyFileSync(path.join(__dirname, 'README.md'), path.join(TARGET_DIR, 'README.md'));
+    // 复制截图
+    fs.copyFileSync(path.join(__dirname, 'Screenshot.png'), path.join(TARGET_DIR, 'Screenshot.png'));
 }
 
 // 复制 public 目录（前端页面）
