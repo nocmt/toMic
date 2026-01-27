@@ -149,6 +149,8 @@ function buildMacListenerIfNeeded() {
                      const targetPath = path.join(distDir, 'mac-input-listener');
                      fs.copyFileSync(builtBin, targetPath);
                      log(`构建成功，已归档二进制文件到: ${targetPath}`);
+                     //  建议稍后重新启动
+                     log('建议稍后重新启动以确保监听器正常运行');
                      return resolve({ binPath: targetPath, useSwiftRun: false });
                 } else {
                     log('构建显示成功但未找到产物，将尝试使用 swift run');
