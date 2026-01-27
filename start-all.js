@@ -201,11 +201,21 @@ function startMacListener(binPath, useSwiftRun) {
 }
 
 function startWindowsListener() {
-    // 检查 dist 下的 exe 是否存在
-    const exePath = path.join(winListenerRoot, 'dist', 'mic_listener.exe');
-    if (fs.existsSync(exePath)) {
-        log(`监听器路径: ${exePath}`);
-        listenerProcess = spawn(exePath, [], { cwd: winListenerRoot });
+    // 1. 优先检查打包后的标准结构 (native/mic_listener.exe)
+    const pkgExePath = path.join(basePath, 'native', 'mic_listener.exe');
+    if (fs.existsSync(pkgExePath)) {
+        log(`监听器路径 (Release): ${pkgExePath}`);
+        // 注意 cwd 设置为 native 目录，以便找到同级的 sox/ffmpeg
+        listenerProcess = spawn(pkgExePath, [], { cwd: path.dirname(pkgExePath) });
+        setupListenerProcess(listenerProcess);
+        return;
+    }
+
+    // 2. 检查开发环境结构 (native/windows-listener/dist/mic_listener.exe)
+    const devExePath = path.join(winListenerRoot, 'dist', 'mic_listener.exe');
+    if (fs.existsSync(devExePath)) {
+        log(`监听器路径 (Dev): ${devExePath}`);
+        listenerProcess = spawn(devExePath, [], { cwd: winListenerRoot });
         setupListenerProcess(listenerProcess);
         return;
     }
@@ -248,11 +258,38 @@ function setupListenerProcess(proc) {
 }
 
 function attachSignals() {
-    const cleanup = () => {
-        if (listenerProcess) listenerProcess.kill('SIGTERM');
-        // Server 运行在主进程中，不需要单独杀死
-        process.exit(0);
+    let isCleaningUp = false;
+    const cleanup = async () => {
+        if (isCleaningUp) return;
+        isCleaningUp = true;
+        
+        log('正在关闭服务...');
+        
+        if (listenerProcess) {
+            if (os.platform() === 'win32') {
+                // Windows 下使用 taskkill 强制杀死进程树
+                try {
+                    spawn('taskkill', ['/pid', listenerProcess.pid, '/f', '/t']);
+                } catch (e) {
+                    // ignore
+                }
+            } else {
+                listenerProcess.kill('SIGTERM');
+            }
+        }
+        
+        // 给一点时间让子进程退出
+        setTimeout(() => {
+            process.exit(0);
+        }, 200);
     };
+
+    // Windows 上捕获 SIGINT 需要 resume stdin
+    if (process.stdin.isTTY) {
+        process.stdin.setRawMode(false);
+        process.stdin.resume();
+    }
+
     process.on('SIGINT', cleanup);
     process.on('SIGTERM', cleanup);
 }

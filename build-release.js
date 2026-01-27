@@ -32,8 +32,9 @@ try {
 }
 
 // Rename executable to 'toMic'
-const builtName = 'tomic'; 
-const finalName = 'toMic';
+const ext = platform === 'win32' ? '.exe' : '';
+const builtName = 'tomic' + ext; 
+const finalName = 'toMic' + ext;
 
 if (fs.existsSync(path.join(TARGET_DIR, builtName))) {
     fs.renameSync(path.join(TARGET_DIR, builtName), path.join(TARGET_DIR, finalName));
@@ -41,81 +42,108 @@ if (fs.existsSync(path.join(TARGET_DIR, builtName))) {
 
 console.log('正在处理 Native 依赖...');
 
-// 1. 复制 mac-input-listener
-const listenerSrc = path.join(__dirname, 'native', 'macos-listener', 'dist', 'mac-input-listener');
-const listenerDest = path.join(NATIVE_DIR, 'mac-input-listener');
+if (platform === 'darwin') {
+    // 1. 复制 mac-input-listener
+    const listenerSrc = path.join(__dirname, 'native', 'macos-listener', 'dist', 'mac-input-listener');
+    const listenerDest = path.join(NATIVE_DIR, 'mac-input-listener');
 
-if (fs.existsSync(listenerSrc)) {
-    fs.copyFileSync(listenerSrc, listenerDest);
-    fs.chmodSync(listenerDest, '755');
-    console.log('✅ mac-input-listener 已复制到 native 目录');
-} else {
-    console.warn('⚠️  警告: 未找到构建好的 mac-input-listener，请手动放入 release/ToMic/native 目录');
-}
+    if (fs.existsSync(listenerSrc)) {
+        fs.copyFileSync(listenerSrc, listenerDest);
+        fs.chmodSync(listenerDest, '755');
+        console.log('✅ mac-input-listener 已复制到 native 目录');
+    } else {
+        console.warn('⚠️  警告: 未找到构建好的 mac-input-listener，请手动放入 release/ToMic/native 目录');
+    }
 
-// 2. 处理 ffmpeg - 优先使用本地构建的版本
-const ffmpegDest = path.join(__dirname, 'native', 'macos-listener', 'ffmpeg');
+    // 2. 处理 ffmpeg - 优先使用本地构建的版本
+    const ffmpegDest = path.join(__dirname, 'native', 'macos-listener', 'ffmpeg');
 
-if (fs.existsSync(ffmpegDest)) {
-    // 复制到打包后的 native 目录
-    fs.copyFileSync(ffmpegDest, path.join(NATIVE_DIR, 'ffmpeg'));
-    console.log('✅ ffmpeg 已从本地复制');
-} else {
-    console.warn(`⚠️  未找到本地 ffmpeg，请手动下载并放入 ${path.join('native', 'macos-listener')} 目录`);
-    console.log('   下载地址: https://evermeet.cx/ffmpeg/');
-}
+    if (fs.existsSync(ffmpegDest)) {
+        // 复制到打包后的 native 目录
+        fs.copyFileSync(ffmpegDest, path.join(NATIVE_DIR, 'ffmpeg'));
+        console.log('✅ ffmpeg 已从本地复制');
+    } else {
+        console.warn(`⚠️  未找到本地 ffmpeg，请手动下载并放入 ${path.join('native', 'macos-listener')} 目录`);
+        console.log('   下载地址: https://evermeet.cx/ffmpeg/');
+    }
 
-// 3. 下载/复制 sox
-// sox 没有方便的 direct link，我们假设它已经存在于 project root 或者提示用户
-// 但为了自动化，我们可以尝试复制系统中的 sox 如果是静态链接的（通常不是）。
-// 或者我们可以提供一个下载脚本。
-// 这里为了演示，我们检查本地是否有 native/macos-listener/sox (开发环境可能放了)
-// 如果没有，我们尝试从系统复制（不太安全但可行），或者留空并打印提示。
-
-const soxDest = path.join(NATIVE_DIR, 'sox');
+    // 3. 下载/复制 sox
+    const soxDest = path.join(NATIVE_DIR, 'sox');
     // 尝试寻找系统 sox
     try {
         const systemSoxPath = execSync('which sox').toString().trim();
         if (systemSoxPath) {
             console.log(`ℹ️  检测到系统 sox (${systemSoxPath})，正在复制...`);
-            // 注意：复制系统二进制文件可能会导致动态库缺失问题
-            // 但对于 brew 安装的 sox，通常依赖较多。
-            // 更好的做法是下载静态构建，但 macOS sox 静态构建很难找。
-            // 这里我们做一个简单的复制，并警告用户可能需要 brew install sox
             fs.copyFileSync(systemSoxPath, soxDest);
             fs.chmodSync(soxDest, '755');
             console.log('✅ 系统 sox 已复制 (注意：可能依赖系统库)');
         } else {
-             console.warn('⚠️  未找到 sox，正在使用brew安装sox');
-             execSync('brew install sox', { stdio: 'inherit' });
-             // 退出让其重新打包
-            onsole.info('✅ sox安装完成，请重新打包');
+            console.warn('⚠️  未找到 sox，正在使用brew安装sox');
+            execSync('brew install sox', { stdio: 'inherit' });
+            console.info('✅ sox安装完成，请重新打包');
             process.exit(1);
         }
     } catch (e) {
-        onsole.warn('⚠️  未找到 sox，正在使用brew安装sox');
+        console.warn('⚠️  未找到 sox，正在使用brew安装sox');
         execSync('brew install sox', { stdio: 'inherit' });
-        // 退出让其重新打包
-        onsole.info('✅ sox安装完成，请重新打包');
+        console.info('✅ sox安装完成，请重新打包');
         process.exit(1);
     }
 
+    // 4. 处理 BlackHole 安装包
+    const pkgName = 'BlackHole2ch-0.6.1.pkg';
+    const pkgSrc = path.join(__dirname, 'native', 'macos-listener', pkgName);
+    const pkgDest = path.join(TARGET_DIR, pkgName);
 
+    if (fs.existsSync(pkgSrc)) {
+        fs.copyFileSync(pkgSrc, pkgDest);
+        console.log(`✅ ${pkgName} 已包含`);
+    } else {
+        console.warn(`⚠️  未找到 ${pkgName}，请确保将其放入 ${path.join('native','macos-listener')} 目录`);
+    }
 
+} else if (platform === 'win32') {
+    console.log('正在处理 Windows Native 依赖...');
+    
+    // 1. mic_listener.exe
+    const listenerSrc = path.join(__dirname, 'native', 'windows-listener', 'dist', 'mic_listener.exe');
+    const listenerDest = path.join(NATIVE_DIR, 'mic_listener.exe');
+    if (fs.existsSync(listenerSrc)) {
+        fs.copyFileSync(listenerSrc, listenerDest);
+        console.log('✅ mic_listener.exe 已复制');
+    } else {
+        console.warn('⚠️  未找到 mic_listener.exe');
+    }
 
-// 4. 处理 BlackHole 安装包
-// 假设用户将其放在项目根目录或指定位置，我们将其复制到 release
-const pkgName = 'BlackHole2ch-0.6.1.pkg';
-// 它在在 native/macos-listener 下
-const pkgSrc = path.join(__dirname, 'native', 'macos-listener', pkgName);
-const pkgDest = path.join(TARGET_DIR, pkgName);
+    // 2. sox.exe
+    const soxSrc = path.join(__dirname, 'native', 'windows-listener', 'sox.exe');
+    const soxDest = path.join(NATIVE_DIR, 'sox.exe');
+    if (fs.existsSync(soxSrc)) {
+        fs.copyFileSync(soxSrc, soxDest);
+        console.log('✅ sox.exe 已复制');
+    } else {
+        console.warn('⚠️  未找到 sox.exe');
+    }
 
-if (fs.existsSync(pkgSrc)) {
-    fs.copyFileSync(pkgSrc, pkgDest);
-    console.log(`✅ ${pkgName} 已包含`);
-} else {
-    console.warn(`⚠️  未找到 ${pkgName}，请确保将其放入 ${path.join('native','macos-listener')} 目录`);
+    // 3. ffmpeg.exe
+    const ffmpegSrc = path.join(__dirname, 'native', 'windows-listener', 'ffmpeg.exe');
+    const ffmpegDest = path.join(NATIVE_DIR, 'ffmpeg.exe');
+    if (fs.existsSync(ffmpegSrc)) {
+        fs.copyFileSync(ffmpegSrc, ffmpegDest);
+        console.log('✅ ffmpeg.exe 已复制');
+    } else {
+        console.warn('⚠️  未找到 ffmpeg.exe');
+    }
 
+    // 4. VBCABLE_Driver_Pack45.zip
+    const vbCableSrc = path.join(__dirname, 'native', 'windows-listener', 'VBCABLE_Driver_Pack45.zip');
+    const vbCableDest = path.join(TARGET_DIR, 'VBCABLE_Driver_Pack45.zip');
+    if (fs.existsSync(vbCableSrc)) {
+        fs.copyFileSync(vbCableSrc, vbCableDest);
+        console.log('✅ VBCABLE_Driver_Pack45.zip 已复制');
+    } else {
+        console.warn('⚠️  未找到 VBCABLE_Driver_Pack45.zip');
+    }
 }
 
 console.log('正在复制文档和静态文件...');

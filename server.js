@@ -38,8 +38,20 @@ const NATIVE_DIR = path.join(BASE_DIR, 'native');
 const LOCAL_WIN_LISTENER_DIR = path.join(NATIVE_DIR, 'windows-listener');
 
 // Windows 路径
-const WIN_SOX_PATH = path.join(LOCAL_WIN_LISTENER_DIR, 'sox.exe');
-const WIN_FFMPEG_PATH = path.join(LOCAL_WIN_LISTENER_DIR, 'ffmpeg.exe');
+let WIN_SOX_PATH = path.join(LOCAL_WIN_LISTENER_DIR, 'sox.exe');
+let WIN_FFMPEG_PATH = path.join(LOCAL_WIN_LISTENER_DIR, 'ffmpeg.exe');
+
+// 如果是打包环境，优先查找扁平目录 (native/sox.exe, native/ffmpeg.exe)
+if (IS_WIN && isPkg) {
+    const pkgSoxPath = path.join(NATIVE_DIR, 'sox.exe');
+    if (fs.existsSync(pkgSoxPath)) {
+        WIN_SOX_PATH = pkgSoxPath;
+    }
+    const pkgFfmpegPath = path.join(NATIVE_DIR, 'ffmpeg.exe');
+    if (fs.existsSync(pkgFfmpegPath)) {
+        WIN_FFMPEG_PATH = pkgFfmpegPath;
+    }
+}
 
 // macOS 路径 (独立打包后位于 native/ffmpeg, native/sox)
 const MAC_SOX_PATH = path.join(NATIVE_DIR, 'sox');
