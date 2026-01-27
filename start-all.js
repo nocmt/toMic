@@ -10,12 +10,19 @@ const https = require('https');
 const fs = require('fs');
 const path = require('path');
 const os = require('os');
+const server = require('./server');
 
 const SERVER_URL = 'https://127.0.0.1:23336';
-const macListenerRoot = path.join(__dirname, 'native', 'macos-listener');
-const winListenerRoot = path.join(__dirname, 'native', 'windows-listener');
 
-let serverProcess = null;
+const isPkg = typeof process.pkg !== 'undefined';
+const basePath = isPkg ? path.dirname(process.execPath) : __dirname;
+
+// 定义查找根目录
+// 开发环境下: __dirname/native/...
+// Pkg 环境下: basePath/native/... (假设保持目录结构)
+const macListenerRoot = path.join(basePath, 'native', 'macos-listener');
+const winListenerRoot = path.join(basePath, 'native', 'windows-listener');
+
 let listenerProcess = null;
 let lastState = null;
 let pendingAction = null;
@@ -61,19 +68,23 @@ function requestAction(action) {
 }
 
 function startServer() {
-    serverProcess = spawn(process.execPath, ['server.js'], {
-        cwd: __dirname,
-        stdio: 'inherit'
-    });
-    serverProcess.on('exit', (code) => {
-        log(`服务进程退出: ${code ?? 'unknown'}`);
-    });
+    // 直接在当前进程启动 Server
+    server.startServer();
 }
 
 function findMacListenerBinary() {
-    // 优先检查 dist 目录
-    const distPath = path.join(macListenerRoot, 'dist', 'mac-input-listener');
+    // 1. 优先检查打包后的标准结构 (native/mac-input-listener)
+    let nativePath = path.join(basePath, 'native', 'mac-input-listener');
+    if (fs.existsSync(nativePath)) return nativePath;
+
+    // 2. 开发环境标准结构 (native/macos-listener/dist/...)
+    let distPath = path.join(macListenerRoot, 'dist', 'mac-input-listener');
     if (fs.existsSync(distPath)) return distPath;
+
+    // 3. 兼容旧逻辑的扁平结构
+    let flatPath = path.join(basePath, 'mac-input-listener');
+    if (fs.existsSync(flatPath)) return flatPath;
+
     return null;
 }
 
@@ -81,8 +92,15 @@ function buildMacListenerIfNeeded() {
     const found = findMacListenerBinary();
     if (found) return Promise.resolve({ binPath: found, useSwiftRun: false });
 
+    if (isPkg) {
+        log('未找到 macOS 监听器。在打包版本中不支持自动构建。');
+        log('请确保 "mac-input-listener" 文件存在于 native 目录下。');
+        return Promise.resolve({ binPath: null, useSwiftRun: false });
+    }
+
     return new Promise((resolve) => {
         log('未检测到 dist/mac-input-listener，正在构建 CoreAudio 监听器...');
+        // ... (rest of build logic)
         
         // 确保 dist 目录存在
         const distDir = path.join(macListenerRoot, 'dist');
@@ -156,7 +174,13 @@ function startMacListener(binPath, useSwiftRun) {
         listenerProcess = spawn('swift', ['run', '-c', 'release', '--disable-sandbox'], { cwd: macListenerRoot });
     } else {
         log(`监听器路径: ${binPath}`);
-        listenerProcess = spawn(binPath, [], { cwd: macListenerRoot });
+        // 确保 CWD 存在
+        let cwd = macListenerRoot;
+        if (!fs.existsSync(cwd)) {
+            // 如果默认源码目录不存在（如打包环境），则使用二进制文件所在目录
+            cwd = path.dirname(binPath);
+        }
+        listenerProcess = spawn(binPath, [], { cwd: cwd });
     }
     setupListenerProcess(listenerProcess);
 }
@@ -203,12 +227,15 @@ function setupListenerProcess(proc) {
     proc.on('exit', (code) => {
         log(`监听器退出: ${code ?? 'unknown'}`);
     });
+    proc.on('error', (err) => {
+        log(`监听器进程错误: ${err.message}`);
+    });
 }
 
 function attachSignals() {
     const cleanup = () => {
         if (listenerProcess) listenerProcess.kill('SIGTERM');
-        if (serverProcess) serverProcess.kill('SIGTERM');
+        // Server 运行在主进程中，不需要单独杀死
         process.exit(0);
     };
     process.on('SIGINT', cleanup);

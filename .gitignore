@@ -54,3 +54,5 @@ temp/
 build/*
 mic_listener.spec
 package-lock.json
+release
+native/macos-listener/ffmpeg

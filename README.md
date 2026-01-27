@@ -23,9 +23,10 @@
 ### macOS
 1. **Node.js** (v16+)
 2. **BlackHole 2ch** (虚拟声卡)
-   - [下载并安装 BlackHole 2ch](https://existential.audio/blackhole/)
-3. **Homebrew** (推荐)
-   - 用于自动安装音频处理工具 `sox`。
+   - 本项目 Release 包中已包含安装程序 `BlackHole2ch-0.6.1.pkg` (位于 `native/` 目录下)。
+   - 双击安装，安装完成后在“音频 MIDI 设置”中可以看到 BlackHole 2ch 设备。
+3. **音频处理工具**
+   - 项目已内置 `ffmpeg` 和 `sox` 二进制文件，无需手动安装。
 
 ### Windows
 1. **Node.js** (v16+)
@@ -53,7 +54,7 @@ npm install
 我们提供了一键启动脚本，会自动检测操作系统并启动相应服务：
 
 ```bash
-npm run start:all
+npm run start
 # 或者
 node start-all.js
 ```
@@ -112,8 +113,98 @@ A: 这是正常的进程退出日志，表示音频流已正常断开，请忽�
 ├── public/             # 前端页面
 ├── server.js           # 核心音频服务 (Node.js + FFmpeg)
 ├── start-all.js        # 启动脚本 (跨平台)
+├── build-release.js    # macOS 打包脚本
 └── ...
+
+## 📦 打包与分发
+
+### macOS 打包指南
+
+#### 1. 准备依赖文件
+在打包前，请确保以下文件已放置在正确位置：
+
+```bash
+# 手动下载并放置依赖文件
+# macOS 依赖 (放入 native/ 目录):
+native/
+├── mac-input-listener      # 从 native/macos-listener/dist/ 复制
+├── ffmpeg                  # 下载: https://evermeet.cx/ffmpeg/
+├── sox                     # 通过 brew install sox 安装后复制
+└── BlackHole2ch-0.6.1.pkg  # BlackHole 安装包
 ```
+
+#### 2. 执行打包
+运行打包脚本自动创建分发包：
+
+```bash
+# 安装打包工具
+npm install --save-dev pkg
+
+# 执行打包 (自动检测架构)
+npm run build
+```
+
+打包完成后，会在 `release/ToMic-macOS/` 目录生成完整的发布包：
+
+会有架构的区别，根据用户的操作系统架构，会生成不同的发布包。
+
+```
+release/ToMic-macOS/
+├── toMic                 # 主程序 (Node.js 打包)
+├── README.md            # 说明文档
+└── native/              # 依赖目录
+    ├── mac-input-listener  # macOS 监听器
+    ├── ffmpeg              # FFmpeg 二进制
+    ├── sox                 # SoX 音频工具
+    └── BlackHole2ch-0.6.1.pkg  # 虚拟声卡安装包
+```
+
+#### 3. 分发给用户
+将 `ToMic-macOS` 文件夹压缩后分发给用户：
+
+```bash
+# 创建压缩包
+cd release
+zip -r ToMic-macOS.zip ToMic-macOS/
+```
+
+### 用户使用说明
+
+#### 首次使用步骤：
+1. **解压下载的压缩包**
+2. **安装 BlackHole 虚拟声卡**：
+   ```bash
+   # 双击安装 native/BlackHole2ch-0.6.1.pkg
+   # 或在终端运行: sudo installer -pkg native/BlackHole2ch-0.6.1.pkg -target /
+   ```
+3. **配置音频设置**：
+   - 打开 "音频 MIDI 设置"
+   - 创建多输出设备，包含 BlackHole 2ch 和你的物理扬声器
+   - 设置系统默认输出为多输出设备
+4. **运行程序**：
+   ```bash
+   # 双击 toMic 文件
+   # 或在终端运行: ./toMic
+   ```
+5. **连接手机**：打开浏览器访问显示的 HTTPS 地址
+
+#### 依赖文件说明：
+- **ffmpeg**: 音频转码工具，必须包含在 native/ 目录
+- **sox**: 音频路由工具，必须包含在 native/ 目录  
+- **mac-input-listener**: macOS 原生状态监听器
+- **BlackHole2ch-0.6.1.pkg**: 虚拟声卡安装程序
+
+### Windows 打包说明
+
+Windows 版本主要依赖手动配置：
+1. 用户需要手动下载并放置 `ffmpeg.exe` 和 `sox.exe` 到 `native/windows-listener/`
+2. 安装 VB-CABLE 虚拟声卡
+3. 构建 Python 监听器 (可选):
+   ```bash
+   cd native/windows-listener
+   pip install -r requirements.txt
+   pyinstaller --onefile --noconsole mic_listener.py
+   ```
 
 ## 📄 License
 

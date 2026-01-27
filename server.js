@@ -28,9 +28,22 @@ const IS_MAC = os.platform() === 'darwin';
 const IS_WIN = os.platform() === 'win32';
 
 // 路径配置
-const LOCAL_WIN_LISTENER_DIR = path.join(__dirname, 'native', 'windows-listener');
-const LOCAL_SOX_PATH = path.join(LOCAL_WIN_LISTENER_DIR, 'sox.exe');
-const LOCAL_FFMPEG_PATH = path.join(LOCAL_WIN_LISTENER_DIR, 'ffmpeg.exe');
+const isPkg = typeof process.pkg !== 'undefined';
+const BASE_DIR = isPkg ? path.dirname(process.execPath) : __dirname;
+
+// 统一 Native 目录查找逻辑
+// Windows: native/windows-listener
+// macOS: native
+const NATIVE_DIR = path.join(BASE_DIR, 'native');
+const LOCAL_WIN_LISTENER_DIR = path.join(NATIVE_DIR, 'windows-listener');
+
+// Windows 路径
+const WIN_SOX_PATH = path.join(LOCAL_WIN_LISTENER_DIR, 'sox.exe');
+const WIN_FFMPEG_PATH = path.join(LOCAL_WIN_LISTENER_DIR, 'ffmpeg.exe');
+
+// macOS 路径 (独立打包后位于 native/ffmpeg, native/sox)
+const MAC_SOX_PATH = path.join(NATIVE_DIR, 'sox');
+const MAC_FFMPEG_PATH = path.join(NATIVE_DIR, 'ffmpeg');
 
 // 二进制文件路径和状态
 let soxPath = 'sox'; // 默认系统命令
@@ -40,16 +53,18 @@ let hasFfmpeg = false;
 let soxUseDefaultDevice = false; // Windows 下 sox 需要 -d 参数
 
 // 1. 检测 FFmpeg
-if (IS_WIN && fs.existsSync(LOCAL_FFMPEG_PATH)) {
-    ffmpegPath = LOCAL_FFMPEG_PATH;
+if (IS_WIN && fs.existsSync(WIN_FFMPEG_PATH)) {
+    ffmpegPath = WIN_FFMPEG_PATH;
+    console.log(`【系统初始化】检测到本地 FFmpeg: ${ffmpegPath}`);
+} else if (IS_MAC && fs.existsSync(MAC_FFMPEG_PATH)) {
+    ffmpegPath = MAC_FFMPEG_PATH;
     console.log(`【系统初始化】检测到本地 FFmpeg: ${ffmpegPath}`);
 }
+
 // 设置 ffmpeg 路径
 try {
     ffmpeg.setFfmpegPath(ffmpegPath);
-    hasFfmpeg = true; // 假定设置了就有，或者下面更严谨地检测
-    // 简单验证
-    // require('child_process').spawnSync(ffmpegPath, ['-version']);
+    hasFfmpeg = true; 
 } catch (e) {
     console.error('【系统初始化】FFmpeg 配置异常:', e.message);
     hasFfmpeg = false;
@@ -57,10 +72,10 @@ try {
 
 // 2. 检测 SoX
 if (IS_WIN) {
-    if (fs.existsSync(LOCAL_SOX_PATH)) {
-        soxPath = LOCAL_SOX_PATH;
+    if (fs.existsSync(WIN_SOX_PATH)) {
+        soxPath = WIN_SOX_PATH;
         hasSox = true;
-        soxUseDefaultDevice = true; // Windows 版本 sox (如 14.4.2) 通常需要 -d 指定默认音频设备
+        soxUseDefaultDevice = true; 
         console.log(`【系统初始化】检测到本地 SoX: ${soxPath}`);
     } else {
         // 尝试系统路径
@@ -73,15 +88,22 @@ if (IS_WIN) {
     }
 } else {
     // macOS / Linux
-    const checkSox = require('child_process').spawnSync('sox', ['--version']);
-    if (checkSox.status === 0) {
+    if (IS_MAC && fs.existsSync(MAC_SOX_PATH)) {
+        soxPath = MAC_SOX_PATH;
         hasSox = true;
-        console.log('【系统初始化】检测到 SoX 音频工具');
+        console.log(`【系统初始化】检测到本地 SoX: ${soxPath}`);
+    } else {
+        const checkSox = require('child_process').spawnSync('sox', ['--version']);
+        if (checkSox.status === 0) {
+            hasSox = true;
+            console.log('【系统初始化】检测到 SoX 音频工具');
+        }
     }
 }
 
+
 if (hasSox) {
-    console.log('【系统初始化】SoX 也就绪，将启用定向音频路由 (BlackHole/VB-CABLE)');
+    console.log('【系统初始化】SoX 就绪，将启用定向音频路由 (BlackHole/VB-CABLE)');
 } else {
     console.log('【系统初始化】未检测到 SoX，将使用默认音频输出设备 (Speaker)');
     if (IS_MAC) {
@@ -104,11 +126,13 @@ if (!fs.existsSync(ffmpegPath) && IS_WIN) {
 
 // 配置
 const PORT = 23336;
-const CERT_DIR = path.join(__dirname, 'certs');
+// 证书目录必须在可执行文件外部（因为 pkg 内部只读）
+const CERT_DIR = path.join(BASE_DIR, 'certs');
 const OUTPUT_HINT = IS_MAC ? `
 【输出设备提示】
 请将系统“声音->输出设备”切换为虚拟设备：
   - macOS 请选择 BlackHole 2ch（推荐“无监听”版本避免本机扬声器播放）
+  - Windows 请选择 VB-CABLE（CABLE Input）
 如果输出仍为内置扬声器，将产生本机回放与回声。
 ` : IS_WIN ? `
 【输出设备提示】
@@ -119,7 +143,11 @@ const OUTPUT_HINT = IS_MAC ? `
 
 // 确保证书目录存在
 if (!fs.existsSync(CERT_DIR)) {
-    fs.mkdirSync(CERT_DIR);
+    try {
+        fs.mkdirSync(CERT_DIR, { recursive: true });
+    } catch (e) {
+        console.error(`【系统初始化】无法创建证书目录: ${CERT_DIR}`, e);
+    }
 }
 
 // 获取或生成证书
@@ -152,15 +180,43 @@ async function getCertificates() {
 }
 
 // 主初始化流程
-(async () => {
+async function startServer() {
     try {
         const app = express();
         const options = await getCertificates();
         const server = https.createServer(options, app);
-        const io = new Server(server);
+        const io = new Server(server, {
+            cors: {
+                origin: "*",
+                methods: ["GET", "POST"]
+            },
+            serveClient: false // 统一禁用自动 serve，改用静态文件/手动路由
+        });
 
         app.use(express.json());
-        app.use(express.static('public'));
+        // public 目录在 pkg 中会被自动打包到 snapshot 中，__dirname 可用
+        app.use(express.static(path.join(BASE_DIR, 'public')));
+
+        // 开发环境：手动路由 lib/socket.io.js 到 node_modules
+        if (!isPkg) {
+            app.get('/lib/socket.io.js', (req, res) => {
+                 // 尝试查找 node_modules 中的 socket.io 客户端文件
+                 try {
+                     const socketIoBase = path.dirname(require.resolve('socket.io/package.json'));
+                     res.sendFile(path.join(socketIoBase, 'client-dist', 'socket.io.js'));
+                 } catch (e) {
+                     res.status(404).send('socket.io client file not found');
+                 }
+            });
+            app.get('/lib/socket.io.js.map', (req, res) => {
+                 try {
+                     const socketIoBase = path.dirname(require.resolve('socket.io/package.json'));
+                     res.sendFile(path.join(socketIoBase, 'client-dist', 'socket.io.js.map'));
+                 } catch (e) {
+                     res.status(404).send('map file not found');
+                 }
+            });
+        }
 
         let demandState = false;
 
@@ -406,7 +462,7 @@ async function getCertificates() {
 
         server.listen(PORT, '0.0.0.0', () => {
             console.log(`-----------------------------------------------------`);
-            console.log(`【服务启动】HTTPS 服务器运行在 https://0.0.0.0:${PORT}`);
+            console.log(`【服务启动】HTTPS 服务器运行在 https://${getLocalIP()}:${PORT}`);
             console.log(`【重要提示】`);
             if (IS_MAC) {
                 console.log(`1. 请确保已安装 ffmpeg (brew install ffmpeg)`);
@@ -423,4 +479,25 @@ async function getCertificates() {
     } catch (err) {
         console.error('【系统启动失败】', err);
     }
-})();
+}
+
+if (require.main === module) {
+    startServer();
+}
+
+// 获取局域网Ip
+function getLocalIP() {
+    const os = require('os');
+    const networkInterfaces = os.networkInterfaces();
+    for (const interfaceName in networkInterfaces) {
+        const interfaceInfo = networkInterfaces[interfaceName];
+        for (const addressInfo of interfaceInfo) {
+            if (addressInfo.family === 'IPv4' && !addressInfo.internal) {
+                return addressInfo.address;
+            }
+        }
+    }
+    return '0.0.0.0';
+}
+
+module.exports = { startServer };

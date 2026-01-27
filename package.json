@@ -2,10 +2,11 @@
   "name": "tomic",
   "version": "1.0.0",
   "description": "",
+  "bin": "start-all.js",
   "main": "index.js",
   "scripts": {
-    "start:all": "node start-all.js",
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "start": "node start-all.js",
+    "build": "node build-release.js"
   },
   "keywords": [],
   "author": "",
@@ -17,5 +18,8 @@
     "selfsigned": "^5.5.0",
     "socket.io": "^4.8.3",
     "speaker": "^0.5.5"
+  },
+  "devDependencies": {
+    "pkg": "^5.8.1"
   }
 }
