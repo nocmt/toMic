@@ -13,13 +13,7 @@ const os = require('os');
 
 const SERVER_URL = 'https://127.0.0.1:23336';
 const macListenerRoot = path.join(__dirname, 'native', 'macos-listener');
-const winListenerScript = path.join(__dirname, 'native', 'windows-listener', 'mic_listener.py');
-
-// Windows 环境下使用的监听器路径 (优先使用 exe，其次使用 python 脚本)
-const WIN_LISTENER_EXE = path.join(__dirname, 'native', 'windows-listener', 'dist', 'mic_listener.exe');
-const WIN_LISTENER_SCRIPT = path.join(__dirname, 'native', 'windows-listener', 'mic_listener.py');
-// Windows 环境下使用的 Python 路径 (仅当 exe 不存在时使用)
-const WIN_PYTHON_PATH = String.raw`C:\Users\nocmt\miniconda3\envs\toMic\python.exe`;
+const winListenerRoot = path.join(__dirname, 'native', 'windows-listener');
 
 let serverProcess = null;
 let listenerProcess = null;
@@ -77,36 +71,59 @@ function startServer() {
 }
 
 function findMacListenerBinary() {
-    const buildRoot = path.join(macListenerRoot, '.build');
-    const direct = path.join(buildRoot, 'release', 'mac-input-listener');
-    if (fs.existsSync(direct)) return direct;
-    if (!fs.existsSync(buildRoot)) return null;
-    try {
-        const entries = fs.readdirSync(buildRoot, { withFileTypes: true });
-        for (const entry of entries) {
-            if (!entry.isDirectory()) continue;
-            const candidate = path.join(buildRoot, entry.name, 'release', 'mac-input-listener');
-            if (fs.existsSync(candidate)) return candidate;
-        }
-    } catch (e) {
-        return null;
-    }
+    // 优先检查 dist 目录
+    const distPath = path.join(macListenerRoot, 'dist', 'mac-input-listener');
+    if (fs.existsSync(distPath)) return distPath;
     return null;
 }
 
 function buildMacListenerIfNeeded() {
     const found = findMacListenerBinary();
     if (found) return Promise.resolve({ binPath: found, useSwiftRun: false });
+
     return new Promise((resolve) => {
-        log('正在构建 CoreAudio 监听器...');
+        log('未检测到 dist/mac-input-listener，正在构建 CoreAudio 监听器...');
+        
+        // 确保 dist 目录存在
+        const distDir = path.join(macListenerRoot, 'dist');
+        if (!fs.existsSync(distDir)) fs.mkdirSync(distDir, { recursive: true });
+
         const build = spawn('swift', ['build', '-c', 'release', '--disable-sandbox'], {
             cwd: macListenerRoot,
             stdio: 'inherit'
         });
+        
         build.on('exit', (code) => {
             if (code === 0) {
-                const after = findMacListenerBinary();
-                if (after) return resolve({ binPath: after, useSwiftRun: false });
+                // 构建成功后，查找构建产物并移动到 dist
+                // Swift build output 通常在 .build/release/mac-input-listener 或 .build/x86_64-apple-macosx/release/mac-input-listener
+                const buildRoot = path.join(macListenerRoot, '.build');
+                let builtBin = path.join(buildRoot, 'release', 'mac-input-listener');
+                
+                if (!fs.existsSync(builtBin)) {
+                    // 尝试查找架构特定的目录
+                    const entries = fs.readdirSync(buildRoot);
+                    for (const entry of entries) {
+                         if (entry.includes('apple-macosx')) {
+                             const candidate = path.join(buildRoot, entry, 'release', 'mac-input-listener');
+                             if (fs.existsSync(candidate)) {
+                                 builtBin = candidate;
+                                 break;
+                             }
+                         }
+                    }
+                }
+
+                if (fs.existsSync(builtBin)) {
+                     const targetPath = path.join(distDir, 'mac-input-listener');
+                     fs.copyFileSync(builtBin, targetPath);
+                     log(`构建成功，已归档二进制文件到: ${targetPath}`);
+                     return resolve({ binPath: targetPath, useSwiftRun: false });
+                } else {
+                    log('构建显示成功但未找到产物，将尝试使用 swift run');
+                }
+            } else {
+                log('构建失败');
             }
             resolve({ binPath: null, useSwiftRun: true });
         });
@@ -133,7 +150,41 @@ function handleListenerLine(line) {
     }
 }
 
-function setupListenerOutput(proc) {
+function startMacListener(binPath, useSwiftRun) {
+    if (useSwiftRun) {
+        log('未检测到监听器二进制，改用 swift run');
+        listenerProcess = spawn('swift', ['run', '-c', 'release', '--disable-sandbox'], { cwd: macListenerRoot });
+    } else {
+        log(`监听器路径: ${binPath}`);
+        listenerProcess = spawn(binPath, [], { cwd: macListenerRoot });
+    }
+    setupListenerProcess(listenerProcess);
+}
+
+function startWindowsListener() {
+    // 检查 dist 下的 exe 是否存在
+    const exePath = path.join(winListenerRoot, 'dist', 'mic_listener.exe');
+    if (fs.existsSync(exePath)) {
+        log(`监听器路径: ${exePath}`);
+        listenerProcess = spawn(exePath, [], { cwd: winListenerRoot });
+        setupListenerProcess(listenerProcess);
+        return;
+    }
+
+    // 不存在则提示构建
+    log('❌ 未检测到 Windows 监听器可执行文件 (native/windows-listener/dist/mic_listener.exe)');
+    log('⚠️  请按以下步骤进行构建：');
+    log('   1. 确保已安装 Python 3 和 pip');
+    log('   2. cd native/windows-listener');
+    log('   3. pip install -r requirements.txt -i https://pypi.tuna.tsinghua.edu.cn/simple');
+    log('   4. pyinstaller --onefile --noconsole --distpath dist --name mic_listener mic_listener.py');
+    log('   5. 完成后重新运行此脚本');
+    
+    // 仅启动 Server，不启动 Listener
+    log('将在无监听器模式下运行 (无法自动响应系统静音状态)...');
+}
+
+function setupListenerProcess(proc) {
     proc.stdout.on('data', (data) => {
         const text = data.toString();
         process.stdout.write(text);
@@ -152,46 +203,6 @@ function setupListenerOutput(proc) {
     proc.on('exit', (code) => {
         log(`监听器退出: ${code ?? 'unknown'}`);
     });
-}
-
-function startMacListener(binPath, useSwiftRun) {
-    if (useSwiftRun) {
-        log('未检测到监听器二进制，改用 swift run');
-        listenerProcess = spawn('swift', ['run', '-c', 'release', '--disable-sandbox'], { cwd: macListenerRoot });
-    } else {
-        log(`监听器路径: ${binPath}`);
-        listenerProcess = spawn(binPath, [], { cwd: macListenerRoot });
-    }
-    setupListenerOutput(listenerProcess);
-}
-
-function startWindowsListener() {
-    // 优先检查 exe
-    if (fs.existsSync(WIN_LISTENER_EXE)) {
-        log(`启动 Windows 麦克风监听器 (EXE模式)...`);
-        listenerProcess = spawn(WIN_LISTENER_EXE, [], {
-            cwd: path.dirname(WIN_LISTENER_EXE)
-        });
-        setupListenerOutput(listenerProcess);
-        return;
-    }
-
-    // 回退到 Python 模式
-    if (!fs.existsSync(WIN_PYTHON_PATH)) {
-        log(`错误: 未找到 Python 解释器: ${WIN_PYTHON_PATH}`);
-        return;
-    }
-    if (!fs.existsSync(WIN_LISTENER_SCRIPT)) {
-        log(`错误: 未找到监听脚本: ${WIN_LISTENER_SCRIPT}`);
-        return;
-    }
-    
-    log('启动 Windows 麦克风监听器 (Python模式)...');
-    // 使用 -u 参数禁用 Python 输出缓冲
-    listenerProcess = spawn(WIN_PYTHON_PATH, ['-u', WIN_LISTENER_SCRIPT], {
-        cwd: path.dirname(WIN_LISTENER_SCRIPT)
-    });
-    setupListenerOutput(listenerProcess);
 }
 
 function attachSignals() {
@@ -227,27 +238,27 @@ function checkMacDependencies() {
 }
 
 async function main() {
-    const platform = os.platform();
-    log(`检测到操作系统: ${platform}`);
-    
     attachSignals();
+    
+    // 启动核心服务
     startServer();
 
-    if (platform === 'darwin') {
+    if (os.platform() === 'darwin') {
         await checkMacDependencies();
         const buildResult = await buildMacListenerIfNeeded();
         if (!buildResult.binPath && !buildResult.useSwiftRun) {
-            log('监听器构建失败，请手动检查');
-            process.exit(1);
+            log('监听器构建失败，请手动进入 native/macos-listener 运行 swift build');
+            // 这里不退出，因为 Server 依然可用
+        } else {
+            startMacListener(buildResult.binPath, buildResult.useSwiftRun);
         }
-        startMacListener(buildResult.binPath, buildResult.useSwiftRun);
-    } else if (platform === 'win32') {
+    } else if (os.platform() === 'win32') {
         startWindowsListener();
     } else {
-        log('当前系统不支持自动启动监听器，仅启动 Web 服务');
+        log('当前系统不支持原生监听器功能，仅启动 Web 服务');
     }
     
-    log('一键启动流程完成');
+    log('一键启动完成');
 }
 
 main();
