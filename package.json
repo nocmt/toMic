@@ -1,6 +1,6 @@
 {
   "name": "tomic",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "",
   "bin": "start-all.js",
   "main": "index.js",
@@ -18,8 +18,7 @@
     "fluent-ffmpeg": "^2.1.3",
     "gradient-string": "^2.0.2",
     "selfsigned": "^5.5.0",
-    "socket.io": "^4.8.3",
-    "speaker": "^0.5.5"
+    "socket.io": "^4.8.3"
   },
   "devDependencies": {
     "pkg": "^5.8.1"

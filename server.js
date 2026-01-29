@@ -5,7 +5,7 @@
  * 1. 启动 HTTPS 服务和 WebSocket 服务
  * 2. 接收客户端音频流
  * 3. 使用 FFmpeg 进行音频转码 (WebM -> PCM)
- * 4. 通过 SoX (推荐) 或 Speaker 将音频输出到虚拟声卡 (BlackHole)
+ * 4. 通过 SoX 将音频输出到虚拟声卡 (BlackHole/VB-CABLE)
  * 
  * @author Your Name
  * @license MIT
@@ -18,7 +18,7 @@ const path = require('path');
 const selfsigned = require('selfsigned');
 const { Server } = require('socket.io');
 const { spawn } = require('child_process');
-const Speaker = require('speaker');
+// const Speaker = require('speaker'); // Removed dependency
 const ffmpeg = require('fluent-ffmpeg');
 const { PassThrough } = require('stream');
 const os = require('os');
@@ -258,7 +258,7 @@ async function startServer() {
             // 每个连接创建一个音频处理管道
             let audioStream = new PassThrough();
             let ffmpegCommand = null;
-            let speaker = null;
+            // let speaker = null;
             let soxProcess = null;
             let desiredStreaming = false;
             let pipelineState = 'idle';
@@ -406,6 +406,7 @@ async function startServer() {
             }
 
             function cleanupPipeline() {
+                /*
                 if (speaker) {
                     if (typeof speaker.close === 'function') {
                          speaker.close();
@@ -414,6 +415,7 @@ async function startServer() {
                     }
                     speaker = null;
                 }
+                */
                 if (soxProcess) {
                     soxProcess.kill();
                     soxProcess = null;
