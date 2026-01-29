@@ -146,12 +146,12 @@ npm install --save-dev pkg
 npm run build
 ```
 
-打包完成后，会在 `release/ToMic-macOS/` 目录生成完整的发布包：
+打包完成后，会在 `release/ToMic/` 目录生成完整的发布包：
 
 会有架构的区别，根据用户的操作系统架构，会生成不同的发布包。
 
 ```
-release/ToMic-macOS/
+release/ToMic/
 ├── toMic                 # 主程序 (Node.js 打包)
 ├── README.md            # 说明文档
 └── native/              # 依赖目录
@@ -162,12 +162,12 @@ release/ToMic-macOS/
 ```
 
 #### 3. 分发给用户
-将 `ToMic-macOS` 文件夹压缩后分发给用户：
+将 `ToMic` 文件夹压缩后分发给用户：
 
 ```bash
 # 创建压缩包
 cd release
-zip -r ToMic-macOS.zip ToMic-macOS/
+zip -r ToMic.zip ToMic/
 ```
 
 ### 用户使用说明
