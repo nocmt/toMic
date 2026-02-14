@@ -45,6 +45,27 @@
             background: #f6ffed;
             color: #389e0d;
         }
+        .controls {
+            margin-bottom: 2rem;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            gap: 10px;
+        }
+        .switch-container {
+            display: flex;
+            align-items: center;
+            font-size: 0.9rem;
+            color: #666;
+            background: #f5f5f5;
+            padding: 8px 16px;
+            border-radius: 20px;
+        }
+        .switch-container input {
+            margin-right: 8px;
+            transform: scale(1.2);
+            cursor: pointer;
+        }
         .mic-btn {
             width: 120px;
             height: 120px;
@@ -96,6 +117,13 @@
         <h1>🎙️ 虚拟麦克风</h1>
         <div id="status" class="status">正在连接服务器...</div>
         
+        <div class="controls">
+            <label class="switch-container">
+                <input type="checkbox" id="noiseSwitch" checked>
+                <span>降噪已开启</span>
+            </label>
+        </div>
+
         <button id="micBtn" class="mic-btn" disabled>
             <div class="mic-icon">🎤</div>
             <span id="btnText">点击连接</span>

@@ -9,12 +9,43 @@ const socket = io();
 const statusEl = document.getElementById('status');
 const micBtn = document.getElementById('micBtn');
 const btnText = document.getElementById('btnText');
+const noiseSwitch = document.getElementById('noiseSwitch');
 
 let mediaRecorder = null;
 let mediaStream = null;
 let isReady = false;
 let pendingServerStart = false;
 let desiredSending = false;
+
+// 监听降噪开关
+noiseSwitch.addEventListener('change', async (e) => {
+    const isEnabled = e.target.checked;
+    e.target.nextElementSibling.textContent = isEnabled ? '降噪已开启' : '降噪已关闭';
+    
+    // 如果已经获取了流，需要重新获取以应用新的设置
+    if (mediaStream) {
+        console.log('降噪设置变更，正在重启音频流...');
+        
+        // 停止当前流
+        mediaStream.getTracks().forEach(track => track.stop());
+        mediaStream = null;
+        isReady = false;
+
+        // 如果正在传输，先停止录制
+        const wasSending = desiredSending;
+        if (wasSending) {
+            stopRecorder();
+        }
+
+        // 重新获取流
+        await prepareStream();
+
+        // 如果之前在传输，恢复传输
+        if (wasSending && isReady) {
+            startRecorder();
+        }
+    }
+});
 
 // 检查浏览器兼容性
 if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
@@ -68,7 +99,7 @@ async function prepareStream() {
         const stream = await navigator.mediaDevices.getUserMedia({ 
             audio: {
                 echoCancellation: true,
-                noiseSuppression: true,
+                noiseSuppression: noiseSwitch.checked,
                 autoGainControl: true,
                 channelCount: 1
             } 
