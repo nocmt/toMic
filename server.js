@@ -18,6 +18,7 @@ const path = require('path');
 const selfsigned = require('selfsigned');
 const { Server } = require('socket.io');
 const { spawn } = require('child_process');
+const { spawnSync } = require('child_process');
 // const Speaker = require('speaker'); // Removed dependency
 const ffmpeg = require('fluent-ffmpeg');
 const { PassThrough } = require('stream');
@@ -63,6 +64,101 @@ let ffmpegPath = 'ffmpeg'; // 默认系统命令
 let hasSox = false;
 let hasFfmpeg = false;
 let soxUseDefaultDevice = false; // Windows 下 sox 需要 -d 参数
+const MAC_OUTPUT_DEVICE_CANDIDATES = [
+    'BlackHole 2ch',
+    'BlackHole 16ch',
+    'BlackHole 64ch'
+];
+let macOutputDevice = process.env.TOMIC_OUTPUT_DEVICE || '';
+
+function collectBlackHoleNames(value, names = new Set()) {
+    if (!value) return names;
+    if (Array.isArray(value)) {
+        for (const item of value) collectBlackHoleNames(item, names);
+        return names;
+    }
+    if (typeof value === 'object') {
+        for (const [key, item] of Object.entries(value)) {
+            if (/name/i.test(key) && typeof item === 'string' && /blackhole/i.test(item)) {
+                names.add(item.trim());
+            }
+            collectBlackHoleNames(item, names);
+        }
+        return names;
+    }
+    if (typeof value === 'string' && /blackhole/i.test(value)) {
+        names.add(value.trim());
+    }
+    return names;
+}
+
+function parseBlackHoleNamesFromSystemProfilerText(text) {
+    const names = new Set();
+    for (const line of text.split('\n')) {
+        const trimmed = line.trim();
+        if (!/blackhole/i.test(trimmed)) continue;
+        const match = trimmed.match(/^([^:]+):\s*$/);
+        if (match) {
+            names.add(match[1].trim());
+            continue;
+        }
+        names.add(trimmed.replace(/:$/, '').trim());
+    }
+    return [...names];
+}
+
+function detectMacOutputDevice() {
+    if (!IS_MAC) return '';
+    if (macOutputDevice) {
+        console.log(`【系统初始化】使用环境变量指定的输出设备: ${macOutputDevice}`);
+        return macOutputDevice;
+    }
+
+    const discoveredNames = new Set();
+
+    try {
+        const profilerJson = spawnSync('system_profiler', ['-json', 'SPAudioDataType'], { encoding: 'utf8' });
+        if (profilerJson.status === 0 && profilerJson.stdout) {
+            const parsed = JSON.parse(profilerJson.stdout);
+            collectBlackHoleNames(parsed, discoveredNames);
+        }
+    } catch (e) {
+        // 忽略并继续尝试文本解析
+    }
+
+    if (discoveredNames.size === 0) {
+        try {
+            const profilerText = spawnSync('system_profiler', ['SPAudioDataType'], { encoding: 'utf8' });
+            if (profilerText.status === 0 && profilerText.stdout) {
+                for (const name of parseBlackHoleNamesFromSystemProfilerText(profilerText.stdout)) {
+                    discoveredNames.add(name);
+                }
+            }
+        } catch (e) {
+            // 忽略并走候选名回退
+        }
+    }
+
+    for (const candidate of MAC_OUTPUT_DEVICE_CANDIDATES) {
+        const matched = [...discoveredNames].find((name) => name.toLowerCase() === candidate.toLowerCase());
+        if (matched) {
+            macOutputDevice = matched;
+            console.log(`【系统初始化】自动探测到 BlackHole 输出设备: ${macOutputDevice}`);
+            return macOutputDevice;
+        }
+    }
+
+    const firstDetected = [...discoveredNames][0];
+    if (firstDetected) {
+        macOutputDevice = firstDetected;
+        console.log(`【系统初始化】自动探测到虚拟输出设备: ${macOutputDevice}`);
+        return macOutputDevice;
+    }
+
+    macOutputDevice = MAC_OUTPUT_DEVICE_CANDIDATES[0];
+    console.log(`【系统初始化】未能自动探测 BlackHole，回退使用默认设备名: ${macOutputDevice}`);
+    return macOutputDevice;
+}
 
 // 1. 检测 FFmpeg
 if (IS_WIN && fs.existsSync(WIN_FFMPEG_PATH)) {
@@ -71,6 +167,10 @@ if (IS_WIN && fs.existsSync(WIN_FFMPEG_PATH)) {
 } else if (IS_MAC && fs.existsSync(MAC_FFMPEG_PATH)) {
     ffmpegPath = MAC_FFMPEG_PATH;
     console.log(`【系统初始化】检测到本地 FFmpeg: ${ffmpegPath}`);
+}
+
+if (IS_MAC) {
+    detectMacOutputDevice();
 }
 
 // 设置 ffmpeg 路径
@@ -286,8 +386,12 @@ async function startServer() {
                         '-'               // 从 stdin 读取
                     ];
 
-                    // Windows 下如果直接使用 sox.exe，需要添加 -d 参数来指定默认输出设备
-                    if (soxUseDefaultDevice) {
+                    if (IS_MAC) {
+                        // macOS 必须显式给出输出设备，否则 SoX 会直接报
+                        // "Not enough input filenames specified" 并立即退出。
+                        args.push('-t', 'coreaudio', macOutputDevice);
+                    } else if (soxUseDefaultDevice) {
+                        // Windows 下如果直接使用 sox.exe，需要添加 -d 参数来指定默认输出设备
                         // args.push('-d');
                         // 显式指定 waveaudio default，解决部分系统 "no default audio device configured" 问题
                         // 优先尝试输出到 VB-CABLE，如果找不到则回退到 default
@@ -312,7 +416,7 @@ async function startServer() {
 
                     const env = { ...process.env };
                     if (IS_MAC) {
-                         env.AUDIODEV = 'BlackHole 2ch';
+                         env.AUDIODEV = macOutputDevice;
                     } else if (IS_WIN) {
                         // Windows 下也可以尝试设置 AUDIODEV，但命令行参数优先级更高
                         // env.AUDIODEV = 'CABLE Input (VB-Audio Virtual Cable)';
@@ -326,6 +430,12 @@ async function startServer() {
                             console.error(`【SoX错误】启动失败: ${err.message}`);
                             // Windows 下可能 spawn 失败，回退到 Speaker?
                             // 这里不做自动回退，让用户看到错误
+                        });
+
+                        soxProcess.on('close', (code) => {
+                            if (code !== 0 && pipelineState !== 'idle') {
+                                console.error(`【SoX错误】进程异常退出，exit code=${code}`);
+                            }
                         });
 
                         // 忽略 stderr 输出，除非调试需要
@@ -344,13 +454,13 @@ async function startServer() {
                             if (IS_WIN || msg.includes('FAIL') || msg.includes('WARN')) {
                                 // 过滤掉一些非关键信息，只保留可能的错误
                                 if (msg.trim().length > 0) {
-                                    // console.log(`【SoX底层】${msg.trim()}`);
+                                    console.error(`【SoX底层】${msg.trim()}`);
                                 }
                             }
                         }); 
 
                         outputStream = soxProcess.stdin;
-                        const deviceName = IS_MAC ? 'BlackHole 2ch' : 'Default Audio Device (VB-CABLE)';
+                        const deviceName = IS_MAC ? macOutputDevice : 'Default Audio Device (VB-CABLE)';
                         console.log(`【音频管道】已启动 SoX 进程，定向输出到 ${deviceName}`);
                     } catch (e) {
                         console.error(`【SoX异常】${e.message}`);
@@ -359,18 +469,9 @@ async function startServer() {
                 }
                 
                 if (!outputStream) {
-                    // 初始化扬声器 (PCM 16bit, 48k, Mono) - 回退方案
-                    speaker = new Speaker({
-                        channels: 1,
-                        bitDepth: 16,
-                        sampleRate: 48000
-                    });
-
-                    speaker.on('close', () => {
-                        // console.log(`【音频管道】Speaker 已关闭 (${socket.id})`);
-                    });
-                    outputStream = speaker;
-                    console.log('【音频管道】使用默认 Speaker 输出 (未启用定向路由)');
+                    console.error('【音频管道】未能初始化音频输出目标，请检查 SoX 和虚拟声卡配置');
+                    cleanupPipeline();
+                    return;
                 }
 
                 // 配置 FFmpeg
