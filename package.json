@@ -1,6 +1,6 @@
 {
   "name": "tomic",
-  "version": "1.0.1",
+  "version": "1.0.2",
   "description": "",
   "bin": "start-all.js",
   "main": "index.js",
